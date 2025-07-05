@@ -4,12 +4,15 @@ const YT_API_KEY = process.env.NEXT_PUBLIC_YT_API_KEY;
 const YT_SEARCH_URL = 'https://www.googleapis.com/youtube/v3/search';
 const YT_VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos';
 
-export interface YouTubeVideo {
+/**
+ * Type for a YouTube video returned by fetchChannelVideos
+ */
+export type YouTubeVideo = {
     id: string;
     title: string;
     thumbnail: string;
-    publishedAt?: string;
-}
+    duration: string;
+};
 
 function parseISO8601Duration(duration: string): number {
     const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
@@ -20,50 +23,48 @@ function parseISO8601Duration(duration: string): number {
     return hours * 3600 + minutes * 60 + seconds;
 }
 
+/**
+ * Fetches up to 100 recent music videos from a channel, filtering out Shorts (<60s).
+ * @param channelId The YouTube channel ID
+ * @returns Array of YouTubeVideo objects
+ */
 export async function fetchChannelVideos(channelId: string): Promise<YouTubeVideo[]> {
     if (!YT_API_KEY) return [];
-    let videoIds: string[] = [];
-    let nextPageToken = '';
-    for (let i = 0; i < 2; i++) {
-        const params = {
+    // Fetch up to 100 recent videos from the channel
+    const res = await axios.get(YT_SEARCH_URL, {
+        params: {
             key: YT_API_KEY,
             channelId,
             part: 'snippet',
             type: 'video',
-            maxResults: 50,
-            pageToken: nextPageToken || undefined,
             order: 'date',
-        };
-        const res = await axios.get(YT_SEARCH_URL, { params });
-        const items = res.data.items || [];
-        videoIds = videoIds.concat(items.map((item: any) => item.id.videoId));
-        nextPageToken = res.data.nextPageToken;
-        if (!nextPageToken) break;
-    }
-    // Fetch video details to filter out shorts
-    let videos: YouTubeVideo[] = [];
-    for (let i = 0; i < videoIds.length; i += 50) {
-        const batchIds = videoIds.slice(i, i + 50);
-        const detailsRes = await axios.get(YT_VIDEOS_URL, {
-            params: {
-                key: YT_API_KEY,
-                id: batchIds.join(','),
-                part: 'snippet,contentDetails',
-                maxResults: 50,
-            },
-        });
-        const items = detailsRes.data.items || [];
-        videos = videos.concat(
-            items
-                .filter((item: any) => parseISO8601Duration(item.contentDetails.duration) >= 60)
-                .map((item: any) => ({
-                    id: item.id,
-                    title: item.snippet.title,
-                    thumbnail: item.snippet.thumbnails.medium.url,
-                    publishedAt: item.snippet.publishedAt,
-                }))
-        );
-    }
-    videos.sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''));
-    return videos.slice(0, 100);
+            maxResults: 50,
+        },
+    });
+    // Get video IDs
+    const videoIds = res.data.items.map((item: any) => item.id.videoId).join(',');
+    if (!videoIds) return [];
+    // Fetch video details (to get duration)
+    const detailsRes = await axios.get(YT_VIDEOS_URL, {
+        params: {
+            key: YT_API_KEY,
+            id: videoIds,
+            part: 'snippet,contentDetails',
+        },
+    });
+    // Filter out Shorts (duration < 60s)
+    return detailsRes.data.items
+        .filter((item: any) => {
+            // Parse ISO 8601 duration to seconds
+            const match = item.contentDetails.duration.match(/PT(\d+M)?(\d+S)?/);
+            const min = match && match[1] ? parseInt(match[1]) : 0;
+            const sec = match && match[2] ? parseInt(match[2]) : 0;
+            return min > 0 || sec >= 60;
+        })
+        .map((item: any) => ({
+            id: item.id,
+            title: item.snippet.title,
+            thumbnail: item.snippet.thumbnails.medium.url,
+            duration: item.contentDetails.duration,
+        }));
 } 

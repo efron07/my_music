@@ -3,12 +3,15 @@ import axios from 'axios';
 const YT_API_KEY = process.env.NEXT_PUBLIC_YT_API_KEY;
 const YT_API_URL = 'https://www.googleapis.com/youtube/v3/search';
 
-export interface YouTubeVideo {
+/**
+ * Type for a YouTube video returned by fetchSongs
+ */
+export type YouTubeVideo = {
     id: string;
     title: string;
     thumbnail: string;
-    publishedAt?: string;
-}
+    duration: string;
+};
 
 export interface FetchSongsResult {
     videos: YouTubeVideo[];
@@ -25,50 +28,53 @@ function parseISO8601Duration(duration: string): number {
     return hours * 3600 + minutes * 60 + seconds;
 }
 
-export async function fetchSongs(artistName: string): Promise<FetchSongsResult> {
-    if (!YT_API_KEY) {
-        return { videos: [], error: 'YouTube API key is missing.' };
-    }
-
-    let videos: YouTubeVideo[] = [];
-    let nextPageToken = '';
-    let error = '';
-
+/**
+ * Fallback: Fetches up to 100 music videos by keyword (videoCategoryId=10 for music).
+ * @param keyword The search keyword
+ * @returns Object with videos array and error string (if any)
+ */
+export async function fetchSongs(keyword: string): Promise<{ videos: YouTubeVideo[]; error?: string }> {
     try {
-        for (let i = 0; i < 2; i++) {
-            const params = {
-                key: YT_API_KEY,
-                q: artistName,
+        // Fetch up to 50 music videos by keyword
+        const res = await axios.get(YT_API_URL, {
+            params: {
                 part: 'snippet',
                 type: 'video',
-                videoCategoryId: 10, // music only
+                videoCategoryId: 10, // Music
+                q: keyword,
                 maxResults: 50,
-                pageToken: nextPageToken || undefined,
                 order: 'date',
-            };
-            const res = await axios.get(YT_API_URL, { params });
-            const items = res.data.items || [];
-            videos = videos.concat(
-                items.map((item: any) => ({
-                    id: item.id.videoId,
-                    title: item.snippet.title,
-                    thumbnail: item.snippet.thumbnails.medium.url,
-                    publishedAt: item.snippet.publishedAt,
-                }))
-            );
-            nextPageToken = res.data.nextPageToken;
-            if (!nextPageToken) break;
-        }
-        // Sort by publishedAt descending (newest first)
-        videos.sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''));
-    } catch (e: any) {
-        if (e.response && e.response.data && e.response.data.error) {
-            error = e.response.data.error.message;
-        } else {
-            error = 'Failed to fetch videos.';
-        }
-        return { videos: [], error };
+                key: YT_API_KEY,
+            },
+        });
+        // Get video IDs
+        const ids = res.data.items.map((item: any) => item.id.videoId).join(',');
+        if (!ids) return { videos: [] };
+        // Fetch video details (to get duration)
+        const detailsRes = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
+            params: {
+                part: 'snippet,contentDetails',
+                id: ids,
+                key: YT_API_KEY,
+            },
+        });
+        // Filter out Shorts (duration < 60s)
+        const videos = detailsRes.data.items
+            .filter((item: any) => {
+                // Parse ISO 8601 duration to seconds
+                const match = item.contentDetails.duration.match(/PT(\d+M)?(\d+S)?/);
+                const min = match && match[1] ? parseInt(match[1]) : 0;
+                const sec = match && match[2] ? parseInt(match[2]) : 0;
+                return min > 0 || sec >= 60;
+            })
+            .map((item: any) => ({
+                id: item.id,
+                title: item.snippet.title,
+                thumbnail: item.snippet.thumbnails.medium.url,
+                duration: item.contentDetails.duration,
+            }));
+        return { videos };
+    } catch (e) {
+        return { videos: [], error: 'Failed to fetch music videos.' };
     }
-
-    return { videos: videos.slice(0, 100), error: error || undefined };
 } 
