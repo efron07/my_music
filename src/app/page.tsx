@@ -6,6 +6,10 @@ import { fetchChannelVideos, YouTubeVideo } from "@/utils/fetchChannelVideos";
 const PLAYLIST_WIDTH = 370;
 const ACCENT_COLOR = '#2563eb';
 
+/**
+ * YouTubePlayer component
+ * Uses the YouTube iFrame Player API to play a video by ID and auto-play next on end.
+ */
 function YouTubePlayer({ videoId, onEnd }: { videoId: string; onEnd: () => void }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const ytPlayer = useRef<any>(null);
@@ -21,7 +25,7 @@ function YouTubePlayer({ videoId, onEnd }: { videoId: string; onEnd: () => void 
         videoId,
         events: {
           onStateChange: (event: any) => {
-            if (event.data === 0 && isMounted) onEnd();
+            if (event.data === 0 && isMounted) onEnd(); // 0 = ended
           },
         },
         playerVars: {
@@ -32,6 +36,7 @@ function YouTubePlayer({ videoId, onEnd }: { videoId: string; onEnd: () => void 
         },
       });
     }
+    // Load the YouTube iFrame API if not already loaded
     if (!(window as any).YT) {
       const tag = document.createElement("script");
       tag.src = "https://www.youtube.com/iframe_api";
@@ -40,6 +45,7 @@ function YouTubePlayer({ videoId, onEnd }: { videoId: string; onEnd: () => void 
     } else {
       createPlayer();
     }
+    // Cleanup on unmount
     return () => {
       isMounted = false;
       if (ytPlayer.current && ytPlayer.current.destroy) {
@@ -62,18 +68,30 @@ function YouTubePlayer({ videoId, onEnd }: { videoId: string; onEnd: () => void 
   );
 }
 
+/**
+ * Main app component for Brain Music BM
+ * Handles the 3-step flow: search channel, confirm channel, watch playlist
+ */
 export default function Home() {
+  // Step state: 1 = search, 2 = confirm, 3 = playlist
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  // Search keyword
   const [keyword, setKeyword] = useState("");
+  // List of found channels
   const [channels, setChannels] = useState<YouTubeChannel[]>([]);
+  // Selected/confirmed channel
   const [selectedChannel, setSelectedChannel] = useState<YouTubeChannel | null>(null);
+  // Playlist of videos (from channel or fallback)
   const [playlist, setPlaylist] = useState<YouTubeVideo[]>([]);
+  // Index of current video in playlist
   const [current, setCurrent] = useState(0);
+  // Loading and error state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Fallback mode: true if using keyword-based video search
   const [fallbackMode, setFallbackMode] = useState(false);
 
-  // Load last selected channel from localStorage
+  // On mount: load last selected channel from localStorage
   useEffect(() => {
     const last = localStorage.getItem("bm_last_channel");
     if (last) {
@@ -92,7 +110,7 @@ export default function Home() {
     }
   }, [selectedChannel]);
 
-  // Fetch playlist when channel is selected
+  // When a channel is selected, fetch its videos
   useEffect(() => {
     if (step === 3 && selectedChannel) {
       setLoading(true);
@@ -111,7 +129,9 @@ export default function Home() {
     }
   }, [step, selectedChannel]);
 
-  // Fallback: keyword search if no channel found
+  /**
+   * Fallback: If no channel found, search for music videos by keyword (videoCategoryId=10)
+   */
   async function fallbackKeywordSearch() {
     setLoading(true);
     setError("");
@@ -126,7 +146,9 @@ export default function Home() {
     setLoading(false);
   }
 
-  // Step 1: Search for channels
+  /**
+   * Step 1: Search for channels by keyword (artist, album, song)
+   */
   const handleChannelSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -153,13 +175,17 @@ export default function Home() {
     setLoading(false);
   };
 
-  // Step 2: Confirm/select channel
+  /**
+   * Step 2: Confirm/select channel from list
+   */
   const handleSelectChannel = (ch: YouTubeChannel) => {
     setSelectedChannel(ch);
     setStep(3);
   };
 
-  // Player controls
+  /**
+   * Playlist controls: previous, next, select, and auto-next on end
+   */
   const handlePrev = () => setCurrent((c) => (c > 0 ? c - 1 : c));
   const handleNext = () => setCurrent((c) => (c < playlist.length - 1 ? c + 1 : c));
   const handleSelect = (idx: number) => setCurrent(idx);
@@ -167,7 +193,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#181818] text-white flex flex-col items-center font-sans">
-      {/* Header */}
+      {/* Header: app name and search bar */}
       <div className="w-full flex items-center justify-between py-6 bg-[#181818] sticky top-0 z-30 border-b border-neutral-800">
         <div className="flex-1 flex items-center">
           <span className="text-2xl font-extrabold tracking-tight pl-6" style={{ color: ACCENT_COLOR }}>
@@ -175,6 +201,7 @@ export default function Home() {
           </span>
         </div>
         <div className="flex-1 flex justify-center">
+          {/* Step 1: Search input */}
           <form onSubmit={handleChannelSearch} className="flex w-full max-w-xl gap-2">
             <input
               className="flex-1 rounded-l-full px-4 py-2 bg-[#222] border border-[#333] focus:outline-none focus:ring-2"
@@ -196,7 +223,7 @@ export default function Home() {
         </div>
         <div className="flex-1" />
       </div>
-      {/* Step labels */}
+      {/* Step labels for user flow */}
       <div className="w-full max-w-3xl mx-auto mt-6 mb-2 px-4">
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-6 text-sm sm:text-base font-semibold">
           <span className={step === 1 ? "text-white" : "text-gray-400"}>Step 1: Search Channel</span>
@@ -204,7 +231,7 @@ export default function Home() {
           <span className={step === 3 ? "text-white" : "text-gray-400"}>Step 3: Watch Playlist</span>
         </div>
       </div>
-      {/* Step 2: Channel selection */}
+      {/* Step 2: Channel selection list */}
       {step === 2 && !fallbackMode && (
         <div className="w-full max-w-2xl mx-auto flex flex-col gap-4 p-4">
           {channels.length === 0 && (
@@ -229,10 +256,11 @@ export default function Home() {
       )}
       {/* Step 3: Playlist and player */}
       <div className="flex-1 w-full flex flex-col md:flex-row justify-center items-start max-w-[1800px] mx-auto px-0 md:px-6 py-6 gap-0 md:gap-6">
-        {/* Video player */}
+        {/* Video player and controls */}
         <div className="flex-1 flex flex-col items-center md:items-start justify-start">
           {step === 3 && playlist.length > 0 && (
             <div className="w-full max-w-5xl mx-auto" style={{ minWidth: 0 }}>
+              {/* Current video title */}
               <div className="mb-2 text-lg font-bold text-center" style={{ color: ACCENT_COLOR }}>
                 {playlist[current]?.title}
               </div>
@@ -266,7 +294,7 @@ export default function Home() {
             <div className="mt-4 text-yellow-400 text-center font-semibold">No official channel found, showing general videos.</div>
           )}
         </div>
-        {/* Playlist */}
+        {/* Playlist sidebar (desktop) */}
         {step === 3 && playlist.length > 0 && (
           <aside
             className="hidden md:flex flex-col items-start ml-0 md:ml-6"
@@ -294,7 +322,7 @@ export default function Home() {
             </div>
           </aside>
         )}
-        {/* Mobile playlist below video */}
+        {/* Playlist (mobile) */}
         {step === 3 && playlist.length > 0 && (
           <aside className="flex md:hidden flex-col w-full mt-6">
             <div className="w-full bg-[#212121] rounded-xl shadow-lg p-0 overflow-hidden max-h-[40vh] overflow-y-auto scroll-smooth scrollbar-thin scrollbar-thumb-[#2563eb]/60 scrollbar-track-[#232323]">
@@ -320,6 +348,7 @@ export default function Home() {
           </aside>
         )}
       </div>
+      {/* Footer */}
       <footer className="mt-8 mb-2 text-gray-400 text-xs text-center w-full">
         © {new Date().getFullYear()} • Brain Music BM • Developed by Brain Inc. <span style={{ color: ACCENT_COLOR }}>♪</span>
       </footer>

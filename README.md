@@ -1,36 +1,69 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Brain Music BM
 
-## Getting Started
+A minimal, modern YouTube music playlist app built with Next.js 14, TypeScript, and TailwindCSS.
 
-First, run the development server:
+## Features
+- Search for music artists, albums, or songs (channels are filtered for music content)
+- Confirm/select the intended YouTube channel before loading videos
+- Fetch up to 100 recent music videos from the selected channel (no Shorts)
+- Auto-playing playlist with YouTube iFrame Player API
+- Next/Previous controls, current video title display
+- Fallback to keyword-based music video search if no channel found
+- Channel subscriber count shown in selection
+- Mobile responsive, dark theme, minimal UI
+- No ads, no comments, no clutter
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Setup
+1. **Clone the repo:**
+   ```bash
+   git clone <your-repo-url>
+   cd <your-repo-folder>
+   ```
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+3. **Set up YouTube Data API Key:**
+   - Create a `.env.local` file in the root directory.
+   - Add your API key:
+     ```env
+     NEXT_PUBLIC_YT_API_KEY=your_youtube_api_key_here
+     ```
+   - [Get a YouTube Data API v3 key](https://console.developers.google.com/apis/library/youtube.googleapis.com)
+4. **Run the app:**
+   ```bash
+   npm run dev
+   ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## How It Works
+- **Step 1:** Enter an artist, album, or song name. The app searches for music-related YouTube channels (by appending "music" to your keyword).
+- **Step 2:** Select the intended channel from the list (shows name, avatar, description, and subscriber count).
+- **Step 3:** The app fetches up to 100 recent music videos from that channel (filters out Shorts, only videos >= 60s).
+- If no channel is found, the app falls back to a keyword-based music video search (using `videoCategoryId: 10`).
+- The playlist auto-plays, and you can use Next/Prev controls.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## YouTube Data API Usage
+- **Channel Search:**
+  - Uses `type=channel` and appends "music" to the keyword for music-focused results.
+  - Fetches channel statistics (subscriber count) via the `channels.list` endpoint.
+- **Channel Videos:**
+  - Uses `type=video`, `order=date`, and `channelId` to fetch recent uploads.
+  - Fetches video details to filter out Shorts (duration < 60s).
+- **Fallback Video Search:**
+  - Uses `type=video`, `videoCategoryId=10` (Music), and the keyword for general music video search.
+- **Playback:**
+  - Uses the YouTube iFrame Player API for seamless, auto-playing playlists.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Utility Functions
+- `utils/fetchChannels.ts`: Search for music-related channels by keyword, returns id, title, description, avatar, and subscriber count.
+- `utils/fetchChannelVideos.ts`: Fetch up to 100 recent music videos from a channel, filters out Shorts.
+- `utils/fetchSongs.ts`: Fallback, fetches up to 100 music videos by keyword (videoCategoryId=10).
 
-## Learn More
+## Development
+- Built with Next.js 14 (App Router), TypeScript, TailwindCSS
+- All API logic is in `/src/utils/`
+- Responsive and mobile-friendly
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Enjoy a focused, ad-free YouTube music experience!**
