@@ -1,10 +1,10 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { fetchSongs, YouTubeVideo } from "@/utils/fetchSongs";
+import { fetchChannels, YouTubeChannel } from "@/utils/fetchChannels";
+import { fetchChannelVideos, YouTubeVideo } from "@/utils/fetchChannelVideos";
 
-const PAGE_SIZE = 10;
-const PLAYLIST_WIDTH = 370; // px, similar to YouTube
-const ACCENT_COLOR = '#2563eb'; // nice blue
+const PLAYLIST_WIDTH = 370;
+const ACCENT_COLOR = '#2563eb';
 
 function YouTubePlayer({ videoId, onEnd }: { videoId: string; onEnd: () => void }) {
   const playerRef = useRef<HTMLDivElement>(null);
@@ -63,37 +63,111 @@ function YouTubePlayer({ videoId, onEnd }: { videoId: string; onEnd: () => void 
 }
 
 export default function Home() {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [keyword, setKeyword] = useState("");
+  const [channels, setChannels] = useState<YouTubeChannel[]>([]);
+  const [selectedChannel, setSelectedChannel] = useState<YouTubeChannel | null>(null);
   const [playlist, setPlaylist] = useState<YouTubeVideo[]>([]);
   const [current, setCurrent] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [page, setPage] = useState(0);
+  const [fallbackMode, setFallbackMode] = useState(false);
 
-  const totalPages = Math.ceil(playlist.length / PAGE_SIZE);
-  const paginatedPlaylist = playlist.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  // Load last selected channel from localStorage
+  useEffect(() => {
+    const last = localStorage.getItem("bm_last_channel");
+    if (last) {
+      try {
+        const parsed = JSON.parse(last);
+        setSelectedChannel(parsed);
+        setStep(3);
+      } catch { }
+    }
+  }, []);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Save selected channel to localStorage
+  useEffect(() => {
+    if (selectedChannel) {
+      localStorage.setItem("bm_last_channel", JSON.stringify(selectedChannel));
+    }
+  }, [selectedChannel]);
+
+  // Fetch playlist when channel is selected
+  useEffect(() => {
+    if (step === 3 && selectedChannel) {
+      setLoading(true);
+      setError("");
+      setFallbackMode(false);
+      fetchChannelVideos(selectedChannel.id)
+        .then((videos) => {
+          if (videos.length === 0) {
+            setError("No videos found for this channel.");
+          }
+          setPlaylist(videos);
+          setCurrent(0);
+        })
+        .catch(() => setError("Failed to fetch channel videos."))
+        .finally(() => setLoading(false));
+    }
+  }, [step, selectedChannel]);
+
+  // Fallback: keyword search if no channel found
+  async function fallbackKeywordSearch() {
     setLoading(true);
     setError("");
-    setPlaylist([]);
-    setCurrent(0);
-    setPage(0);
+    setFallbackMode(true);
+    setSelectedChannel(null);
+    setStep(3);
+    const { fetchSongs } = await import("@/utils/fetchSongs");
     const { videos, error } = await fetchSongs(keyword);
     if (error) setError(error);
     setPlaylist(videos);
+    setCurrent(0);
+    setLoading(false);
+  }
+
+  // Step 1: Search for channels
+  const handleChannelSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    setChannels([]);
+    setSelectedChannel(null);
+    setPlaylist([]);
+    setCurrent(0);
+    setFallbackMode(false);
+    setStep(1);
+    try {
+      const found = await fetchChannels(keyword);
+      if (found.length === 0) {
+        setChannels([]);
+        setStep(2);
+        setTimeout(fallbackKeywordSearch, 1000); // fallback after showing empty
+      } else {
+        setChannels(found);
+        setStep(2);
+      }
+    } catch {
+      setError("Failed to search channels.");
+    }
     setLoading(false);
   };
 
+  // Step 2: Confirm/select channel
+  const handleSelectChannel = (ch: YouTubeChannel) => {
+    setSelectedChannel(ch);
+    setStep(3);
+  };
+
+  // Player controls
   const handlePrev = () => setCurrent((c) => (c > 0 ? c - 1 : c));
   const handleNext = () => setCurrent((c) => (c < playlist.length - 1 ? c + 1 : c));
-  const handleSelect = (idx: number) => setCurrent(page * PAGE_SIZE + idx);
+  const handleSelect = (idx: number) => setCurrent(idx);
   const handleEnd = () => handleNext();
 
   return (
     <div className="min-h-screen bg-[#181818] text-white flex flex-col items-center font-sans">
-      {/* Header: only search bar, above video */}
+      {/* Header */}
       <div className="w-full flex items-center justify-between py-6 bg-[#181818] sticky top-0 z-30 border-b border-neutral-800">
         <div className="flex-1 flex items-center">
           <span className="text-2xl font-extrabold tracking-tight pl-6" style={{ color: ACCENT_COLOR }}>
@@ -101,13 +175,11 @@ export default function Home() {
           </span>
         </div>
         <div className="flex-1 flex justify-center">
-          <form onSubmit={handleSearch} className="flex w-full max-w-xl gap-2">
+          <form onSubmit={handleChannelSearch} className="flex w-full max-w-xl gap-2">
             <input
               className="flex-1 rounded-l-full px-4 py-2 bg-[#222] border border-[#333] focus:outline-none focus:ring-2"
-              style={{
-                boxShadow: `0 0 0 2px ${ACCENT_COLOR}33`,
-              }}
-              placeholder="Search for videos (e.g. diamond)"
+              style={{ boxShadow: `0 0 0 2px ${ACCENT_COLOR}33` }}
+              placeholder="Search for an artist or channel name"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               required
@@ -124,18 +196,53 @@ export default function Home() {
         </div>
         <div className="flex-1" />
       </div>
-      {/* Main layout: video left, playlist right */}
+      {/* Step labels */}
+      <div className="w-full max-w-3xl mx-auto mt-6 mb-2 px-4">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-6 text-sm sm:text-base font-semibold">
+          <span className={step === 1 ? "text-white" : "text-gray-400"}>Step 1: Search Channel</span>
+          <span className={step === 2 ? "text-white" : "text-gray-400"}>Step 2: Confirm Channel</span>
+          <span className={step === 3 ? "text-white" : "text-gray-400"}>Step 3: Watch Playlist</span>
+        </div>
+      </div>
+      {/* Step 2: Channel selection */}
+      {step === 2 && !fallbackMode && (
+        <div className="w-full max-w-2xl mx-auto flex flex-col gap-4 p-4">
+          {channels.length === 0 && (
+            <div className="text-gray-400 text-center">No channels found. Falling back to general video search...</div>
+          )}
+          {channels.map((ch) => (
+            <div key={ch.id} className="flex items-center gap-4 bg-[#232323] rounded-lg p-4 shadow hover:bg-[#222c3a] transition cursor-pointer" onClick={() => handleSelectChannel(ch)}>
+              <img src={ch.avatar} alt={ch.title} className="w-14 h-14 rounded-full border-2 border-[#333]" />
+              <div className="flex-1">
+                <div className="font-bold text-lg flex items-center gap-2" style={{ color: ACCENT_COLOR }}>
+                  {ch.title}
+                  {ch.subscriberCount && (
+                    <span className="text-xs font-normal text-gray-300 ml-2">• {Number(ch.subscriberCount).toLocaleString()} subscribers</span>
+                  )}
+                </div>
+                <div className="text-gray-400 text-sm line-clamp-2">{ch.description}</div>
+              </div>
+              <button className="ml-4 px-4 py-2 rounded bg-[#2563eb] text-white font-bold hover:bg-blue-700 transition">Select</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* Step 3: Playlist and player */}
       <div className="flex-1 w-full flex flex-col md:flex-row justify-center items-start max-w-[1800px] mx-auto px-0 md:px-6 py-6 gap-0 md:gap-6">
         {/* Video player */}
         <div className="flex-1 flex flex-col items-center md:items-start justify-start">
-          {playlist.length > 0 && (
+          {step === 3 && playlist.length > 0 && (
             <div className="w-full max-w-5xl mx-auto" style={{ minWidth: 0 }}>
+              <div className="mb-2 text-lg font-bold text-center" style={{ color: ACCENT_COLOR }}>
+                {playlist[current]?.title}
+              </div>
               <YouTubePlayer videoId={playlist[current]?.id} onEnd={handleEnd} />
               <div className="flex justify-between items-center w-full mt-4 gap-2">
                 <button
                   onClick={handlePrev}
                   disabled={current === 0}
-                  className="px-5 py-2 rounded-full bg-[#222] hover:bg-[#1db954]/80 text-white font-bold disabled:opacity-40 transition-all text-base"
+                  className="px-5 py-2 rounded-full font-bold disabled:opacity-40 transition-all text-base"
+                  style={{ background: '#222', color: '#fff', border: `1px solid ${ACCENT_COLOR}` }}
                 >
                   ◀ Prev
                 </button>
@@ -145,18 +252,22 @@ export default function Home() {
                 <button
                   onClick={handleNext}
                   disabled={current === playlist.length - 1}
-                  className="px-5 py-2 rounded-full bg-[#222] hover:bg-[#1db954]/80 text-white font-bold disabled:opacity-40 transition-all text-base"
+                  className="px-5 py-2 rounded-full font-bold disabled:opacity-40 transition-all text-base"
+                  style={{ background: '#222', color: '#fff', border: `1px solid ${ACCENT_COLOR}` }}
                 >
                   Next ▶
                 </button>
               </div>
             </div>
           )}
-          {loading && <div className="mt-8 text-[#1db954] text-lg font-bold w-full text-center">Loading videos...</div>}
+          {loading && <div className="mt-8" style={{ color: ACCENT_COLOR }}>Loading...</div>}
           {error && <div className="text-red-400 mt-4 font-semibold text-base w-full text-center">{error}</div>}
+          {fallbackMode && (
+            <div className="mt-4 text-yellow-400 text-center font-semibold">No official channel found, showing general videos.</div>
+          )}
         </div>
         {/* Playlist */}
-        {playlist.length > 0 && (
+        {step === 3 && playlist.length > 0 && (
           <aside
             className="hidden md:flex flex-col items-start ml-0 md:ml-6"
             style={{ width: PLAYLIST_WIDTH, minWidth: PLAYLIST_WIDTH }}
@@ -184,7 +295,7 @@ export default function Home() {
           </aside>
         )}
         {/* Mobile playlist below video */}
-        {playlist.length > 0 && (
+        {step === 3 && playlist.length > 0 && (
           <aside className="flex md:hidden flex-col w-full mt-6">
             <div className="w-full bg-[#212121] rounded-xl shadow-lg p-0 overflow-hidden max-h-[40vh] overflow-y-auto scroll-smooth scrollbar-thin scrollbar-thumb-[#2563eb]/60 scrollbar-track-[#232323]">
               <ul className="flex flex-col gap-0 w-full">
